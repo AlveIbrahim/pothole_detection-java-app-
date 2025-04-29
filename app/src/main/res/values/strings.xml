@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pothole Detector</string>
+    <string name="app_logo_description">App Logo</string>
+    <string name="app_description">Analyze videos to detect and classify road potholes by size and generate detailed reports</string>
+    <string name="select_video_prompt">Select or record a video</string>
+    <string name="video_requirements">For best results, use videos recorded from a dash camera or front-facing vehicle camera showing the road ahead.</string>
+    <string name="select_video_button">Select from Gallery</string>
+    <string name="record_video_button">Record New Video</string>
+    <string name="no_video_selected">No video selected</string>
+    <string name="process_video_button">Analyze Potholes</string>
+
+    <string name="processing_video">Processing Video</string>
+    <string name="initializing_model">Initializing detection model…</string>
+    <string name="current_frame">Current Frame</string>
+    <string name="current_frame_description">Current video frame being processed</string>
+    <string name="live_statistics">Live Statistics</string>
+    <string name="detected_potholes">Detected potholes: 0</string>
+    <string name="frames_processed">Frames processed: 0</string>
+    <string name="processing_time">Processing time: 0 seconds</string>
+    <string name="cancel_processing">Cancel</string>
+
+    <string name="processing_complete">Analysis Complete</string>
+    <string name="analysis_summary">Analysis Summary</string>
+    <string name="total_potholes_detected">Total potholes detected: 0</string>
+    <string name="total_processing_time">Total processing time: 0 seconds</string>
+    <string name="total_frames_processed">Total frames processed: 0</string>
+    <string name="detailed_report">Detailed Report</string>
+    <string name="loading_report">Loading report content…</string>
+    <string name="share_report">Share Report</string>
+    <string name="new_analysis">New Analysis</string>
+</resources>

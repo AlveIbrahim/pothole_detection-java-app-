@@ -1,0 +1,136 @@
+package com.example.potholedetector;
+
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Bundle;
+import android.view.View;
+import android.widget.Button;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.FileProvider;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+
+public class ResultActivity extends AppCompatActivity {
+
+    private TextView totalPotholesTextView;
+    private TextView processingTimeTextView;
+    private TextView framesProcessedTextView;
+    private TextView reportContentTextView;
+    private Button shareReportButton;
+    private Button newAnalysisButton;
+
+    private String reportPath;
+    private int totalPotholes;
+    private long processingTime;
+    private int framesProcessed;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_result);
+
+        // Initialize UI components
+        totalPotholesTextView = findViewById(R.id.totalPotholesTextView);
+        processingTimeTextView = findViewById(R.id.processingTimeTextView);
+        framesProcessedTextView = findViewById(R.id.framesProcessedTextView);
+        reportContentTextView = findViewById(R.id.reportContentTextView);
+        shareReportButton = findViewById(R.id.shareReportButton);
+        newAnalysisButton = findViewById(R.id.newAnalysisButton);
+
+        // Get data from intent
+        reportPath = getIntent().getStringExtra("REPORT_PATH");
+        totalPotholes = getIntent().getIntExtra("TOTAL_POTHOLES", 0);
+        processingTime = getIntent().getLongExtra("PROCESSING_TIME", 0);
+        framesProcessed = getIntent().getIntExtra("FRAMES_PROCESSED", 0);
+
+        // Update UI with data
+        totalPotholesTextView.setText("Total potholes detected: " + totalPotholes);
+        processingTimeTextView.setText("Processing time: " + (processingTime / 1000) + " seconds");
+        framesProcessedTextView.setText("Frames processed: " + framesProcessed);
+
+        // Load and display report content
+        loadReportContent();
+
+        // Set button click listeners
+        shareReportButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                shareReport();
+            }
+        });
+
+        newAnalysisButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent intent = new Intent(ResultActivity.this, MainActivity.class);
+                intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+                finish();
+            }
+        });
+    }
+
+    private void loadReportContent() {
+        if (reportPath == null || reportPath.isEmpty()) {
+            reportContentTextView.setText("Error: Report file not found");
+            return;
+        }
+
+        File reportFile = new File(reportPath);
+        if (!reportFile.exists()) {
+            reportContentTextView.setText("Error: Report file not found at " + reportPath);
+            return;
+        }
+
+        StringBuilder content = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new FileReader(reportFile))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                content.append(line).append("\n");
+            }
+            reportContentTextView.setText(content.toString());
+        } catch (IOException e) {
+            e.printStackTrace();
+            reportContentTextView.setText("Error reading report: " + e.getMessage());
+        }
+    }
+
+    private void shareReport() {
+        if (reportPath == null || reportPath.isEmpty()) {
+            Toast.makeText(this, "No report file to share", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        try {
+            File reportFile = new File(reportPath);
+            if (!reportFile.exists()) {
+                Toast.makeText(this, "Report file not found", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            Uri fileUri = FileProvider.getUriForFile(
+                    this,
+                    getApplicationContext().getPackageName() + ".fileprovider",
+                    reportFile);
+
+            Intent shareIntent = new Intent(Intent.ACTION_SEND);
+            shareIntent.setType("text/plain");
+            shareIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
+            shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            shareIntent.putExtra(Intent.EXTRA_SUBJECT, "Pothole Detection Report");
+            shareIntent.putExtra(Intent.EXTRA_TEXT, "Attached is a pothole detection report generated by Pothole Detector App.");
+
+            startActivity(Intent.createChooser(shareIntent, "Share Report"));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            Toast.makeText(this, "Error sharing report: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+}
