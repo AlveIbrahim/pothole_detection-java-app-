@@ -41,6 +41,7 @@ import java.util.Map;
 
 public class VideoProcessorActivity extends AppCompatActivity {
 
+    private static final String TAG = "VideoProcessorActivity";
     private ProgressBar processingProgressBar;
     private TextView processingStatusTextView;
     private TextView detectedPotholesTextView;
@@ -214,31 +215,64 @@ public class VideoProcessorActivity extends AppCompatActivity {
                             }
                         }
 
-                        // Convert processed frame to bitmap for display
-                        Bitmap processedBitmap = Bitmap.createBitmap(frame.cols(), frame.rows(), Bitmap.Config.ARGB_8888);
-                        Utils.matToBitmap(detectionResult.processedFrame, processedBitmap);
+                        // Safely convert processed frame to bitmap for display
+                        if (!detectionResult.processedFrame.empty() && detectionResult.processedFrame.dims() == 2) {
+                            try {
+                                // Create a bitmap that will be sent to the UI - IMPORTANT: don't recycle this one
+                                Bitmap processedBitmap = Bitmap.createBitmap(
+                                        detectionResult.processedFrame.cols(),
+                                        detectionResult.processedFrame.rows(),
+                                        Bitmap.Config.ARGB_8888
+                                );
+                                Utils.matToBitmap(detectionResult.processedFrame, processedBitmap);
 
-                        // Update UI
-                        processedCount++;
-                        PublishProgressUpdate(
-                                processedCount,
-                                frameCount,
-                                processedBitmap,
-                                potholeCounts.get("Small") + potholeCounts.get("Medium") + potholeCounts.get("Large"),
-                                System.currentTimeMillis() - startTime
-                        );
+                                // Update UI with the bitmap
+                                processedCount++;
+                                publishProgress(new ProcessingUpdate(
+                                        frameCount,
+                                        processedCount,
+                                        processedBitmap, // This bitmap will be handled by the UI system
+                                        potholeCounts.get("Small") + potholeCounts.get("Medium") + potholeCounts.get("Large"),
+                                        System.currentTimeMillis() - startTime
+                                ));
 
+                                // DO NOT recycle the bitmap here, as it's passed to the UI
+                            } catch (Exception e) {
+                                android.util.Log.e(TAG, "Error converting Mat to Bitmap: " + e.getMessage(), e);
+                                processedCount++;
+                                publishProgress(new ProcessingUpdate(frameCount, processedCount, null,
+                                        potholeCounts.get("Small") + potholeCounts.get("Medium") + potholeCounts.get("Large"),
+                                        System.currentTimeMillis() - startTime));
+                            }
+                        } else {
+                            android.util.Log.w(TAG, "Skipping frame display - processed frame is invalid");
+                            // Still update progress without the image
+                            processedCount++;
+                            publishProgress(new ProcessingUpdate(frameCount, processedCount, null,
+                                    potholeCounts.get("Small") + potholeCounts.get("Medium") + potholeCounts.get("Large"),
+                                    System.currentTimeMillis() - startTime));
+                        }
+
+                        // Clean up resources that are no longer needed
                         bitmap.recycle();
+                        frame.release();
+
+                        // DO NOT release detectionResult.processedFrame here, as it's managed by the PotholeDetector
+                    } else {
+                        // If bitmap retrieval failed, still update progress
+                        publishProgress(new ProcessingUpdate(frameCount, processedCount, null,
+                                potholeCounts.get("Small") + potholeCounts.get("Medium") + potholeCounts.get("Large"),
+                                System.currentTimeMillis() - startTime));
                     }
 
                     frameCount++;
-                    publishProgress(new ProcessingUpdate(frameCount, processedCount, null,
-                            potholeCounts.get("Small") + potholeCounts.get("Medium") + potholeCounts.get("Large"),
-                            System.currentTimeMillis() - startTime));
                 }
 
                 // Clean up
                 retriever.release();
+                if (!heatmapHistory.empty()) {
+                    heatmapHistory.release();
+                }
 
                 // Generate report
                 File reportFile = new File(getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS),
@@ -270,11 +304,6 @@ public class VideoProcessorActivity extends AppCompatActivity {
             return result;
         }
 
-        private void PublishProgressUpdate(int processedCount, int frameCount, Bitmap currentFrame,
-                                           int potholeCount, long elapsedTime) {
-            publishProgress(new ProcessingUpdate(frameCount, processedCount, currentFrame, potholeCount, elapsedTime));
-        }
-
         @Override
         protected void onProgressUpdate(ProcessingUpdate... values) {
             if (values.length > 0) {
@@ -293,6 +322,7 @@ public class VideoProcessorActivity extends AppCompatActivity {
 
                 // Update frame preview
                 if (update.currentFrame != null) {
+                    // Set the new bitmap to the ImageView
                     currentFrameImageView.setImageBitmap(update.currentFrame);
                 }
             }

@@ -28,7 +28,7 @@ public class PotholeDetector {
     private static final String TAG = "PotholeDetector";
     private Module model;
 
-    // Define size thresholds (in pixels squared) - same as the Python code
+    // Define size thresholds (in pixels squared) - SAME AS PYTHON CODE
     private final double smallThreshold = 5000;    // Areas below this are small potholes
     private final double largeThreshold = 15000;   // Areas above this are large potholes
 
@@ -36,6 +36,13 @@ public class PotholeDetector {
     private final Scalar smallColor = new Scalar(0, 255, 0);     // Green for small
     private final Scalar mediumColor = new Scalar(0, 165, 255);  // Orange for medium
     private final Scalar largeColor = new Scalar(0, 0, 255);     // Red for large
+
+    // YOLOv8 input dimensions - YOLOv8 typically uses square inputs
+    private final int YOLO_INPUT_SIZE = 640;
+
+    // Normalization parameters for PyTorch - using same as YOLOv8
+    private static final float[] NORM_MEAN = new float[]{0.485f, 0.456f, 0.406f};
+    private static final float[] NORM_STD = new float[]{0.229f, 0.224f, 0.225f};
 
     public PotholeDetector(String modelPath) {
         // Load the YOLO model
@@ -51,56 +58,78 @@ public class PotholeDetector {
     public DetectionResult processFrame(Mat frame) {
         DetectionResult result = new DetectionResult();
 
+        // Initialize with a valid frame to avoid null/empty Mat issues
+        result.processedFrame = frame.clone();
+        result.heatmapUpdate = Mat.zeros(frame.size(), CvType.CV_8UC1);
+
         try {
-            // Convert the frame to the format expected by the model
-            Mat inputFrame = frame.clone();
-
-            // Convert BGR to RGB
-            Imgproc.cvtColor(inputFrame, inputFrame, Imgproc.COLOR_BGR2RGB);
-
-            // Convert to Bitmap for PyTorch processing
-            Bitmap bitmap = Bitmap.createBitmap(inputFrame.cols(), inputFrame.rows(), Bitmap.Config.ARGB_8888);
-            org.opencv.android.Utils.matToBitmap(inputFrame, bitmap);
-
-            // Convert to Tensor
-            FloatBuffer inputBuffer = Tensor.allocateFloatBuffer(3 * bitmap.getWidth() * bitmap.getHeight());
-            float[] mean = {0.485f, 0.456f, 0.406f};
-            float[] std = {0.229f, 0.224f, 0.225f};
-
-            TensorImageUtils.bitmapToFloatBuffer(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(),
-                    mean, std, inputBuffer, 0);
-
-            Tensor inputTensor = Tensor.fromBlob(inputBuffer, new long[]{1, 3, bitmap.getHeight(), bitmap.getWidth()});
-
-            // Run inference
-            // Fixed the problematic line that used toDictionary()
-            IValue output = model.forward(IValue.from(inputTensor));
-            Map<String, IValue> outputs = new HashMap<>();
-
-            // Handle the model output based on YOLOv8-seg format
-            // This is a simplified approach - you'll need to adapt based on your exact model output structure
-            if (output.isTuple()) {
-                IValue[] tuple = output.toTuple();
-                if (tuple.length > 0) {
-                    outputs.put("detection", tuple[0]); // Detection results
-                    if (tuple.length > 1) {
-                        outputs.put("masks", tuple[1]); // Segmentation masks
-                    }
-                }
-            } else {
-                // Single output - store it with a generic key
-                outputs.put("output", output);
+            // ---------- Step 1: Prepare display frame ----------
+            // The display frame size should match the Python code (1020x500)
+            Mat displayFrame = frame.clone();
+            if (displayFrame.cols() != 1020 || displayFrame.rows() != 500) {
+                Imgproc.resize(displayFrame, displayFrame, new Size(1020, 500));
             }
 
-            // Create a copy of the original frame for drawing
-            Mat processedFrame = frame.clone();
-            Mat overlay = frame.clone();
-            Mat heatmapUpdate = Mat.zeros(frame.size(), CvType.CV_8UC1);
+            // ---------- Step 2: Prepare model input ----------
+            // Clone and convert to RGB (YOLOv8 expects RGB)
+            Mat inputFrame = frame.clone();
+            Imgproc.cvtColor(inputFrame, inputFrame, Imgproc.COLOR_BGR2RGB);
 
-            // Process outputs to get mask contours
-            // Note: This is a simplified version as the full YOLOv8-seg output processing is complex
-            // In a real implementation, you'd extract masks from model output
-            List<MatOfPoint> contours = extractContoursFromOutput(outputs, frame);
+            // Resize to square input - YOLOv8 standard
+            Mat resizedFrame = new Mat();
+            Imgproc.resize(inputFrame, resizedFrame, new Size(YOLO_INPUT_SIZE, YOLO_INPUT_SIZE));
+
+            // Convert to Bitmap for PyTorch processing
+            Bitmap bitmap = Bitmap.createBitmap(YOLO_INPUT_SIZE, YOLO_INPUT_SIZE, Bitmap.Config.ARGB_8888);
+            org.opencv.android.Utils.matToBitmap(resizedFrame, bitmap);
+
+            // Prepare tensor input
+            FloatBuffer inputBuffer = Tensor.allocateFloatBuffer(3 * YOLO_INPUT_SIZE * YOLO_INPUT_SIZE);
+            TensorImageUtils.bitmapToFloatBuffer(
+                    bitmap,
+                    0, 0,
+                    YOLO_INPUT_SIZE,
+                    YOLO_INPUT_SIZE,
+                    NORM_MEAN,
+                    NORM_STD,
+                    inputBuffer,
+                    0
+            );
+
+            Tensor inputTensor = Tensor.fromBlob(
+                    inputBuffer,
+                    new long[]{1, 3, YOLO_INPUT_SIZE, YOLO_INPUT_SIZE}
+            );
+
+            // ---------- Step 3: Run inference ----------
+            boolean modelSuccessful = false;
+            try {
+                // Forward pass through the model
+                IValue output = model.forward(IValue.from(inputTensor));
+
+                // Process model output
+                // For YOLOv8-seg, the output should contain both boxes and masks
+                // This would need model-specific interpretation
+                Log.d(TAG, "Model inference completed successfully");
+
+                // TODO: Extract segmentation masks from model output
+                // This would require model-specific processing
+
+                modelSuccessful = true;
+
+                // If successful, the real mask processing would go here
+                // Since we can't directly parse the output without the exact model format,
+                // we'll use simulation for now
+
+            } catch (Exception e) {
+                Log.e(TAG, "Model inference error: " + e.getMessage(), e);
+                // Fall back to simulation
+            }
+
+            // ---------- Step 4: Process detections (simulated for now) ----------
+            // Get contours (either from model output or simulated)
+            List<MatOfPoint> contours = simulateContours(displayFrame);
+            Mat overlay = displayFrame.clone();
 
             // Process each contour
             for (MatOfPoint contour : contours) {
@@ -110,10 +139,10 @@ public class PotholeDetector {
                 // Store for report
                 result.areas.add(area);
 
-                // Get centroid
+                // Get centroid for tracking & risk assessment
                 Point centroid = calculateCentroid(contour);
 
-                // Classify pothole size based on area
+                // Classify pothole size based on area - USING PYTHON CODE THRESHOLDS
                 String sizeCategory;
                 Scalar color;
                 int thickness;
@@ -136,7 +165,7 @@ public class PotholeDetector {
                 }
 
                 // Calculate risk level
-                String riskLevel = calculateRiskLevel(sizeCategory, centroid, frame.height());
+                String riskLevel = calculateRiskLevel(sizeCategory, centroid, displayFrame.height());
                 Scalar riskColor;
 
                 switch (riskLevel) {
@@ -163,13 +192,13 @@ public class PotholeDetector {
                 result.detectedPotholes.add(potholeInfo);
 
                 // Draw contour boundary
-                Imgproc.drawContours(processedFrame, List.of(contour), -1, color, thickness);
+                Imgproc.drawContours(displayFrame, List.of(contour), -1, color, thickness);
 
                 // Fill contour area in overlay
                 Imgproc.drawContours(overlay, List.of(contour), -1, color, -1);
 
                 // Add to heatmap
-                Imgproc.drawContours(heatmapUpdate, List.of(contour), -1, new Scalar(255), 1);
+                Imgproc.drawContours(result.heatmapUpdate, List.of(contour), -1, new Scalar(255), 1);
 
                 // Add label with size and risk
                 String label = sizeCategory + " (Risk: " + riskLevel + ")";
@@ -178,72 +207,55 @@ public class PotholeDetector {
                 org.opencv.core.Rect boundingRect = Imgproc.boundingRect(contour);
                 Point textPosition = new Point(boundingRect.x, boundingRect.y - 10);
 
-                Imgproc.putText(processedFrame, label, textPosition,
+                Imgproc.putText(displayFrame, label, textPosition,
                         Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, new Scalar(255, 255, 255), 2);
 
                 // Draw centroid for tracking visualization
-                Imgproc.circle(processedFrame, centroid, 4, new Scalar(255, 0, 255), -1);
+                Imgproc.circle(displayFrame, centroid, 4, new Scalar(255, 0, 255), -1);
             }
 
-            // Blend overlay with original
-            Core.addWeighted(overlay, 0.4, processedFrame, 0.6, 0, processedFrame);
+            // Blend overlay with original (40% overlay, 60% original)
+            Core.addWeighted(overlay, 0.4, displayFrame, 0.6, 0, displayFrame);
 
-            // Set processed frame in result
-            result.processedFrame = processedFrame;
-            result.heatmapUpdate = heatmapUpdate;
+            // Set final result
+            if (result.processedFrame != null && !result.processedFrame.empty()) {
+                result.processedFrame.release();
+            }
+            result.processedFrame = displayFrame;
 
             // Clean up
             bitmap.recycle();
             inputFrame.release();
+            resizedFrame.release();
             overlay.release();
+
+            // Clean up contours
+            for (MatOfPoint contour : contours) {
+                contour.release();
+            }
 
         } catch (Exception e) {
             Log.e(TAG, "Error processing frame: " + e.getMessage(), e);
             e.printStackTrace();
+
+            // Ensure we still have a valid frame even after an error
+            if (result.processedFrame == null || result.processedFrame.empty() || result.processedFrame.dims() != 2) {
+                if (result.processedFrame != null && !result.processedFrame.empty()) {
+                    result.processedFrame.release();
+                }
+                result.processedFrame = frame.clone();
+            }
+
+            // Set up a blank heatmap if needed
+            if (result.heatmapUpdate == null || result.heatmapUpdate.empty()) {
+                result.heatmapUpdate = Mat.zeros(result.processedFrame.size(), CvType.CV_8UC1);
+            }
         }
 
         return result;
     }
 
-    // Extract contours from model output
-    private List<MatOfPoint> extractContoursFromOutput(Map<String, IValue> outputs, Mat frame) {
-        // This method should extract segmentation masks from model output and convert to contours
-        // For demonstration purposes, we'll use simple simulated contours
-        // In a real implementation, you'd decode YOLO output tensors to get masks
-
-        List<MatOfPoint> contours = new ArrayList<>();
-
-        try {
-            // If we have actual mask data from the model
-            if (outputs.containsKey("masks") && outputs.get("masks") != null) {
-                // Process actual model output to get masks
-                // This would depend on your model's specific output format
-
-                // For YOLOv8-seg, you'd typically:
-                // 1. Get the detection tensor to find bounding boxes and classes
-                // 2. Get the mask prototypes tensor
-                // 3. For each detection, apply the corresponding mask coefficients
-                // 4. Threshold the result to get a binary mask
-                // 5. Find contours in the binary mask
-
-                // Example placeholder:
-                // Tensor masksTensor = outputs.get("masks").toTensor();
-                // float[] masksData = masksTensor.getDataAsFloatArray();
-                // Process mask data...
-            } else {
-                // Generate simulated contours (remove this in production)
-                contours = simulateContours(frame);
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error extracting contours: " + e.getMessage(), e);
-            // Fall back to simulated contours
-            contours = simulateContours(frame);
-        }
-
-        return contours;
-    }
-
-    // Method to calculate centroid of a contour
+    // Method to calculate centroid of a contour - SAME AS PYTHON CODE
     private Point calculateCentroid(MatOfPoint contour) {
         org.opencv.imgproc.Moments moments = Imgproc.moments(contour);
         if (moments.get_m00() != 0) {
@@ -254,7 +266,7 @@ public class PotholeDetector {
         }
     }
 
-    // Calculate risk level based on size and position
+    // Calculate risk level based on size and position - SAME AS PYTHON CODE
     private String calculateRiskLevel(String sizeCategory, Point position, int frameHeight) {
         // Determine risk level based on size and position (center of road is more severe)
         double roadCenter = frameHeight / 2.0;
@@ -282,43 +294,64 @@ public class PotholeDetector {
         }
     }
 
-    // Note: This method simulates detecting contours for testing
-    // In a real implementation, you'd extract masks from the YOLOv8-seg output
+    // Simulate contours for testing - based on the Python simulation approach
     private List<MatOfPoint> simulateContours(Mat frame) {
         // This is a placeholder for testing - in a real implementation
         // you would process the actual YOLOv8-seg outputs to get masks
 
         List<MatOfPoint> contours = new ArrayList<>();
-
-        // Create a simple binary mask for demonstration
-        Mat grayImage = new Mat();
-        Imgproc.cvtColor(frame, grayImage, Imgproc.COLOR_BGR2GRAY);
-
-        // Apply thresholding to create a binary mask
-        Mat binaryMask = new Mat();
-        Imgproc.threshold(grayImage, binaryMask, 100, 255, Imgproc.THRESH_BINARY);
-
-        // Apply some morphological operations to create blob-like shapes
-        Mat kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(20, 20));
-        Imgproc.morphologyEx(binaryMask, binaryMask, Imgproc.MORPH_CLOSE, kernel);
-
-        // Find contours in the binary mask
         List<MatOfPoint> allContours = new ArrayList<>();
+        Mat grayImage = new Mat();
+        Mat binaryMask = new Mat();
         Mat hierarchy = new Mat();
-        Imgproc.findContours(binaryMask, allContours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+        Mat kernel = null;
 
-        // Filter contours by area - select a few random ones to simulate potholes
-        for (MatOfPoint contour : allContours) {
-            double area = Imgproc.contourArea(contour);
-            if (area > 1000 && area < 20000 && Math.random() > 0.7) {
-                contours.add(contour);
+        try {
+            // Use a better simulation approach that mimics the Python code
+            // Convert to grayscale
+            Imgproc.cvtColor(frame, grayImage, Imgproc.COLOR_BGR2GRAY);
+
+            // Apply thresholding to create a binary mask
+            Imgproc.threshold(grayImage, binaryMask, 100, 255, Imgproc.THRESH_BINARY);
+
+            // Apply morphological operations to create blob-like shapes
+            kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, new Size(20, 20));
+            Imgproc.morphologyEx(binaryMask, binaryMask, Imgproc.MORPH_CLOSE, kernel);
+
+            // Find contours in the binary mask
+            Imgproc.findContours(binaryMask, allContours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
+
+            // Filter contours by area - select a few random ones to simulate potholes
+            for (MatOfPoint contour : allContours) {
+                double area = Imgproc.contourArea(contour);
+                // Create a more realistic distribution of potholes
+                if (area > 1000 && area < 20000) {
+                    // Generate more small potholes than large ones (simulate real distribution)
+                    double threshold = area < smallThreshold ? 0.3 : 0.7;
+                    if (Math.random() > threshold) {
+                        contours.add(contour);
+                    } else {
+                        contour.release();
+                    }
+                } else {
+                    contour.release();
+                }
             }
+        } catch (Exception e) {
+            Log.e(TAG, "Error in simulateContours: " + e.getMessage(), e);
+            // Release all contours in case of error
+            for (MatOfPoint contour : allContours) {
+                if (!contours.contains(contour)) {
+                    contour.release();
+                }
+            }
+        } finally {
+            // Clean up resources
+            if (grayImage != null && !grayImage.empty()) grayImage.release();
+            if (binaryMask != null && !binaryMask.empty()) binaryMask.release();
+            if (hierarchy != null && !hierarchy.empty()) hierarchy.release();
+            if (kernel != null && !kernel.empty()) kernel.release();
         }
-
-        // Clean up
-        grayImage.release();
-        binaryMask.release();
-        hierarchy.release();
 
         return contours;
     }
@@ -358,3 +391,5 @@ public class PotholeDetector {
         public String risk;
     }
 }
+
+//hello
